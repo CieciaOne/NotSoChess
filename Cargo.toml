@@ -1,5 +1,5 @@
 [package]
-name = "nsc"
+name = "not_so_chess"
 version = "0.1.0"
 authors = ["CieciaOne <CieciaV2.0@gmail.com>"]
 edition = "2018"
