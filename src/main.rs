@@ -1,5 +1,8 @@
 use std::fmt::{self};
+use std::io::stdin;
+use std::num::ParseIntError;
 use std::ops::Sub;
+use std::str::FromStr;
 
 fn main() {
     // println!("Hello, world!");
@@ -83,28 +86,10 @@ fn main() {
 
     let p1 = Player::new("Ame".to_string(), 1, set.clone());
     let p2 = Player::new("Gura".to_string(), 2, set);
-    // let mut _arena = Map::init(p1, p2);
-    // let _a = Map::empty();
     let mut session = Session::new([p1, p2]);
-    session.next_round();
-    let mut cont = true;
-    // session.next_play([Some(), Some(), None], p2_moves)
-    // println!("{} {:?}",a.is_taken(Position { x: 0, y:0 }),a);
 
-    // println!("{}", _arena);
-    // _arena.move_entity(Position { x: 2, y: 2 }, Position { x: 2, y: 4 });
-    // println!("{}", _arena);
-
-    // _arena.move_entity(Position { x: 2, y: 1 }, Position { x: 4, y: 4 });
-    // println!("{}", _arena);
-
-    // _arena.move_entity(Position { x: 2, y: 4 }, Position { x: 7, y: 9 });
-    // println!("{}", _arena);
-
-    // _arena.move_entity(Position { x: 2, y: 0 }, Position { x: 1, y: 1 });
-    // println!("{}", _arena);
-
-    // _arena.update_points();
+    session.show();
+    session.calculate_round(1);
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -180,6 +165,44 @@ pub struct Position {
     x: u8,
     y: u8,
 }
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum PositionError {
+    ParseError(ParseIntError),
+    IndexError,
+}
+impl From<ParseIntError> for PositionError {
+    fn from(error: ParseIntError) -> Self {
+        PositionError::ParseError(error)
+    }
+}
+
+impl FromStr for Position {
+    type Err = PositionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let coords: Vec<&str> = s
+            .trim_matches(|p| p == '(' || p == ')' || p == '\n')
+            .trim()
+            .split(' ')
+            .collect();
+        if coords.len() == 2 {
+            let x_fromstr = coords[0].parse::<u8>()?;
+            let y_fromstr = coords[1].parse::<u8>()?;
+
+            Ok(Position {
+                x: x_fromstr,
+                y: y_fromstr,
+            })
+        } else {
+            Err(PositionError::IndexError)
+        }
+    }
+}
 
 impl Sub for Position {
     type Output = Self;
@@ -206,7 +229,7 @@ impl Position {
     }
 
     fn is_valid(&self) -> bool {
-        let range = 0..15;
+        let range = 0..16;
         range.contains(&self.x) && range.contains(&self.y)
     }
 
@@ -239,6 +262,15 @@ pub struct Entity {
     figure: Figure,
     position: Position,
     points: u8,
+}
+impl fmt::Display for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "\n{}: {}\n* {}\n",
+            self.figure.name, self.position, self.points
+        )
+    }
 }
 
 impl Entity {
@@ -278,15 +310,23 @@ impl Entity {
         let mvx: i8 = target.x as i8 - self.position.x as i8;
         let mvy: i8 = target.y as i8 - self.position.y as i8;
         let origin = Position { x: 4, y: 4 };
-        origin.x as i8 >= mvx
+        let range = 0..9;
+        if origin.x as i8 >= mvx
             && origin.y as i8 >= mvy
-            && self.figure.pattern[(origin.x as i8 - mvx) as usize][(origin.y as i8 - mvy) as usize]
+            && range.contains(&(origin.x as i8 - mvx))
+            && range.contains(&(origin.y as i8 - mvy))
+        {
+            self.figure.pattern[(origin.x as i8 - mvx) as usize][(origin.y as i8 - mvy) as usize] // panicking if out of range, mv more than indexing??!?!
                 == 1
+        } else {
+            false
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Map {
+    // Consider changing it from 2d array to 1d
     positions: [[Option<Entity>; 16]; 16],
 }
 impl fmt::Display for Map {
@@ -349,7 +389,7 @@ impl Map {
         self.transpose();
         self.reverse_rows();
     }
-
+    // TODO please rewrite this monster
     fn update_points(&mut self) {
         for i in 0..16 {
             for j in 0..16 {
@@ -386,7 +426,7 @@ impl Map {
         }
     }
 
-    /// Initializes a map with players' antities
+    /// Initializes a map with players' entities
     pub fn init(p0: Player, p1: Player) -> Self {
         let mut arena = Map::empty();
         for figure in p0.clone().set().iter() {
@@ -443,8 +483,6 @@ impl Map {
             self.positions[entity.position.x as usize][entity.position.y as usize] = None;
             entity.position = target;
             self.positions[target.x as usize][target.y as usize] = Some(entity);
-        } else {
-            println!("Illegal move.");
         }
     }
 }
@@ -502,72 +540,104 @@ impl Session {
             result: SessionResult::Active,
         }
     }
-    ////////////////////////////////////////////
-    ///////////DO ZROBIENIA BOM GŁUPI///////////
-    ////////////////////////////////////////////
-    fn next_round(&mut self) {
-        // generalnie to musi być jakiś w miarę normalny sposob na input od usera i na bazie tego beda robione submity dla kazdego z osobna
-        // a na koniec porównanie i resolve dodajemy do recordu i tak w kuko
+    // Not working properly rn, logic is wrong
+    fn calculate_round(&mut self, mov_num: usize) {
         let p1 = self.players[0].clone();
         let p2 = self.players[1].clone();
+        let m1 = self.record.last().unwrap().clone();
+        let m2 = self.record.last().unwrap().clone();
+        let mut maps = [m1, m2];
+        for (i, player) in [p1, p2].iter().enumerate() {
+            // let mut moves: Vec<Option<(Entity, Position)>> = vec![];
 
-        let mut m1: Map;
-        let mut m2: Map;
-        use std::io::stdin;
+            let mut moves: [Option<(Entity, Position)>; 3] = [None, None, None];
 
-        for player in [p1, p2] {
-            let moves: Vec<Option<(Entity, Position)>> = vec![];
-
-            let mut id_buffer = String::new();
             let mut position_buffer = String::new();
+            let mut target_buffer = String::new();
 
-            for i in 0..3 {
+            for i in 0..mov_num {
                 println!("P: {}; Move #{}", player.name(), &i + 1);
 
-                println!("ID: ");
-                stdin().read_line(&mut id_buffer).unwrap();
-
-                println!("Move: {}", &id_buffer);
-                println!("Position:");
-
+                println!("Position: ");
                 stdin().read_line(&mut position_buffer).unwrap();
-                println!("To: {}", &position_buffer);
-                let id = id_buffer.parse::<u128>();
-                // impl fromstr for position
-                // let
-                // moves.push()
+
+                println!("Move: {}", &position_buffer);
+                println!("Target: ");
+
+                stdin().read_line(&mut target_buffer).unwrap();
+                println!("To: {}", &target_buffer);
+
+                position_buffer.pop();
+                let position = Position::from_str(&position_buffer);
+                let target = Position::from_str(&target_buffer);
+
+                let mov = match (position, target) {
+                    (Ok(p), Ok(t)) => match self.get_entity_by_pos(p) {
+                        Some(e) => Some((e, t)),
+                        None => {
+                            println!("Illegal command, you are losing this move {:?}, {:?}", p, t);
+                            None
+                        }
+                    },
+                    _ => {
+                        println!("Illegal command, you are losing this move");
+                        None
+                    }
+                };
+                //clear buffers before using for next move
+                position_buffer.clear();
+                target_buffer.clear();
+                moves[i] = mov;
+                println!("--------");
             }
+            //println!("{:?}", &moves);
+
+            maps[i] = self.submit_moves(moves);
         }
-        // let new_map = self.resolve_maps();
-        // self.record.push(new_map)
+        let new_map = self.resolve_maps(&maps[0], &maps[1]);
+        self.record.push(new_map);
+        self.show()
     }
 
-    pub fn resolve_maps(&self, m1: Map, m2: Map) -> Map {
+    pub fn show(&self) {
+        let map = self.record.last().unwrap();
+        println!("{}", map);
+    }
+
+    pub fn resolve_maps(&self, m1: &Map, m2: &Map) -> Map {
         // m1.positions;
         let map1 = m1;
         let m0 = self.record.last().unwrap();
 
         let mut map2 = m2;
-        map2.rotate90();
-        map2.rotate90();
+        // map2.rotate90();
+        // map2.rotate90();
         let mut resolved_map = m0.clone();
         for i in 0..16 {
             for j in 0..16 {
-                let (e1, e2) = (map1.positions[i][j].clone(), map2.positions[i][j].clone());
-                if e1 == None && e2 == None {
+                let (e0, e1, e2) = (
+                    m0.positions[i][j].clone(),
+                    map1.positions[i][j].clone(),
+                    map2.positions[i][j].clone(),
+                );
+
+                if e0 == None && e1 == None && e2 == None {
                     resolved_map.positions[i][j] = None;
-                // } else if e1 == e2 {
-                //     resolved_map.positions[i][j] = e1;
-                } else if e1 != None && e2 == None || e1 == e2 {
+                } else if e0 != None && e1 == None && e2 != None {
                     resolved_map.positions[i][j] = e1;
-                } else if e1 == None && e2 != None {
+                } else if e0 != None && e1 != None && e2 == None {
                     resolved_map.positions[i][j] = e2;
+                } else if e0 == None && e1 == None && e2 != None {
+                    resolved_map.positions[i][j] = e2;
+                } else if e0 == None && e1 != None && e2 == None {
+                    resolved_map.positions[i][j] = e1;
                 } else if e1 != None && e2 != None && e1 != e2 {
-                    println!("Bitka pany");
                     let mut e1 = e1.unwrap();
+                    // println!("{:#?},{:#?}", &e1, &e2);
                     let mut e2 = e2.unwrap();
+                    println!("Bitka pany! {} {}", &e1, &e2);
                     if e1.points == e2.points {
-                        println!("Dobra jednak wracać")
+                        println!("Points are equal. Backing up.")
                     } else if e1.points > e2.points {
                         e2.deal_dmg(&mut e1);
                         e2.state = State::Dead;
@@ -578,7 +648,7 @@ impl Session {
                         resolved_map.positions[i][j] = Some(e2);
                     }
                 } else {
-                    print!("CODOCHUJAJAKTONIBYCOTOMABYC");
+                    continue;
                 }
             }
         }
@@ -595,20 +665,35 @@ impl Session {
         }
         res
     }
-    fn get_entity_by_pos(&self, position: Position) -> Entity {
-        self.get_last_map().positions[position.x as usize][position.y as usize]
-            .to_owned()
-            .unwrap()
+    fn get_entity_by_pos(&self, position: Position) -> Option<Entity> {
+        if position.is_valid() {
+            match self.get_last_map().positions[position.x as usize][position.y as usize].to_owned()
+            {
+                Some(e) => Some(e),
+                None => {
+                    print!("ree");
+                    None
+                }
+            }
+        } else {
+            print!("ee");
+            None
+        }
     }
     fn get_last_map(&self) -> Map {
         self.record.last().unwrap().to_owned()
     }
-
     pub fn submit_moves(&mut self, moves: [Option<(Entity, Position)>; 3]) -> Map {
         let mut map = self.record.last().unwrap().to_owned();
         for mov in moves {
-            let (e, t) = mov.unwrap();
-            map.move_entity(e.position, t);
+            match mov {
+                Some((e, t)) => {
+                    map.move_entity(e.position, t);
+                }
+                None => {
+                    continue;
+                }
+            };
         }
         map
     }
@@ -616,7 +701,36 @@ impl Session {
 
 #[cfg(test)]
 mod test {
+
     use super::*;
     #[test]
-    fn test_map() {}
+    fn test_fr_st_pos() {
+        assert_eq!(Position { x: 1, y: 6 }, Position::from_str("1 6").unwrap());
+    }
+    #[test]
+    fn test_fr_st_pos1() {
+        assert_eq!(Position { x: 1, y: 6 }, Position::from_str("1 6 ").unwrap());
+    }
+    #[test]
+    fn test_fr_st_pos2() {
+        assert_eq!(Position { x: 1, y: 6 }, Position::from_str(" 1 6").unwrap());
+    }
+    #[test]
+    fn test_fr_st_pos3() {
+        assert_eq!(
+            Position { x: 1, y: 6 },
+            Position::from_str(" 1 6 ").unwrap()
+        );
+    }
+    #[test]
+    fn test_fr_st_pos4() {
+        assert_eq!(
+            Position { x: 1, y: 6 },
+            Position::from_str(" 1 6\n").unwrap()
+        );
+    }
+    #[test]
+    fn test_fr_st_pos5() {
+        assert!(Position::from_str("16").is_err());
+    }
 }
